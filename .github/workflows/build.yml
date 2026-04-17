@@ -1,0 +1,82 @@
+name: Auto Build
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */2 * * *'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve latest upstream tag
+        id: sync
+        run: |
+          git remote add upstream https://github.com/Auxilor/EcoJobs.git || true
+          git fetch upstream --tags
+
+          UPSTREAM_TAG=$(git ls-remote --refs --tags upstream | awk -F/ '{print $3}' | sort -V | tail -n1)
+          if [ -z "$UPSTREAM_TAG" ]; then
+            echo "Could not resolve upstream tag."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$UPSTREAM_TAG" > /dev/null 2>&1; then
+            echo "Latest upstream tag ($UPSTREAM_TAG) already exists on origin. Skipping build and release."
+            echo "has_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "Building latest upstream tag: $UPSTREAM_TAG"
+            git checkout --detach "tags/$UPSTREAM_TAG"
+            echo "has_update=true" >> $GITHUB_OUTPUT
+            echo "upstream_tag=$UPSTREAM_TAG" >> $GITHUB_OUTPUT
+          fi
+        
+      - name: Set up JDK 21
+        if: steps.sync.outputs.has_update == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Setup Gradle cache
+        if: steps.sync.outputs.has_update == 'true'
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Get Project Version
+        id: version
+        if: steps.sync.outputs.has_update == 'true'
+        run: |
+          VERSION=$(grep '^version' gradle.properties | cut -d'=' -f2 | tr -d ' ' | tr -d '\r')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "name=$VERSION (Auto Build)" >> $GITHUB_OUTPUT
+
+      - name: Build
+        if: steps.sync.outputs.has_update == 'true'
+        run: ./gradlew clean build shadowJar --no-daemon
+
+      - name: Verify artifact
+        if: steps.sync.outputs.has_update == 'true'
+        run: |
+          ls -lh bin/*.jar
+          sha256sum bin/*.jar
+
+      - name: Create Release
+        if: steps.sync.outputs.has_update == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.name }}
+          files: "bin/*.jar"
+          body: |
+            Auto-generated build from upstream release tag v${{ steps.version.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
