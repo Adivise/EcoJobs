@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: '0 */2 * * *'
 
+concurrency:
+  group: auto-build-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -16,67 +20,89 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: false
 
-      - name: Resolve latest upstream tag
+      - name: Sync from upstream (changed files only)
         id: sync
-        run: |
-          git remote add upstream https://github.com/Auxilor/EcoJobs.git || true
-          git fetch upstream --tags
+        env:
+          UPSTREAM_URL: https://github.com/Auxilor/EcoJobs.git
+        run: bash .github/scripts/sync-upstream.sh
 
-          UPSTREAM_TAG=$(git ls-remote --refs --tags upstream | awk -F/ '{print $3}' | sort -V | tail -n1)
-          if [ -z "$UPSTREAM_TAG" ]; then
-            echo "Could not resolve upstream tag."
-            exit 1
-          fi
-
-          if git ls-remote --exit-code --tags origin "refs/tags/$UPSTREAM_TAG" > /dev/null 2>&1; then
-            echo "Latest upstream tag ($UPSTREAM_TAG) already exists on origin. Skipping build and release."
-            echo "has_update=false" >> $GITHUB_OUTPUT
-          else
-            echo "Building latest upstream tag: $UPSTREAM_TAG"
-            git checkout --detach "tags/$UPSTREAM_TAG"
-            echo "has_update=true" >> $GITHUB_OUTPUT
-            echo "upstream_tag=$UPSTREAM_TAG" >> $GITHUB_OUTPUT
-          fi
-        
       - name: Set up JDK 21
-        if: steps.sync.outputs.has_update == 'true'
+        if: steps.sync.outputs.run_build == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: 21
 
       - name: Setup Gradle cache
-        if: steps.sync.outputs.has_update == 'true'
+        if: steps.sync.outputs.run_build == 'true'
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Get Project Version
-        id: version
-        if: steps.sync.outputs.has_update == 'true'
-        run: |
-          VERSION=$(grep '^version' gradle.properties | cut -d'=' -f2 | tr -d ' ' | tr -d '\r')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "tag=$VERSION" >> $GITHUB_OUTPUT
-          echo "name=$VERSION (Auto Build)" >> $GITHUB_OUTPUT
-
       - name: Build
-        if: steps.sync.outputs.has_update == 'true'
+        if: steps.sync.outputs.run_build == 'true'
         run: ./gradlew clean build shadowJar --no-daemon
 
       - name: Verify artifact
-        if: steps.sync.outputs.has_update == 'true'
+        if: steps.sync.outputs.run_build == 'true'
         run: |
           ls -lh bin/*.jar
           sha256sum bin/*.jar
 
+      - name: Commit sync and push
+        id: publish
+        if: steps.sync.outputs.has_update == 'true' || steps.sync.outputs.has_update == 'pointer'
+        env:
+          DEFAULT_BRANCH: ${{ steps.sync.outputs.default_branch }}
+          HAS_UPDATE: ${{ steps.sync.outputs.has_update }}
+          UPSTREAM_SHA: ${{ steps.sync.outputs.upstream_sha }}
+        run: bash .github/scripts/commit-sync.sh
+
       - name: Create Release
-        if: steps.sync.outputs.has_update == 'true'
+        if: steps.sync.outputs.run_build == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.name }}
-          files: "bin/*.jar"
+          tag_name: ${{ steps.sync.outputs.tag_name }}
+          name: ${{ steps.sync.outputs.release_name }}
+          target_commitish: ${{ steps.publish.outputs.head_sha }}
+          files: bin/*.jar
           body: |
-            Auto-generated build from upstream release tag v${{ steps.version.outputs.tag }}
+            Auto-generated build from upstream Auxilor/EcoJobs @ ${{ steps.sync.outputs.upstream_sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Discord
+        if: success() && steps.sync.outputs.run_build == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REL_NAME: ${{ steps.sync.outputs.release_name }}
+          TAG_NAME: ${{ steps.sync.outputs.tag_name }}
+          VERSION: ${{ steps.sync.outputs.gradle_version }}
+          UP_SHA: ${{ steps.sync.outputs.upstream_sha }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL secret not set; skipping Discord."
+            exit 0
+          fi
+          rel_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME}"
+          jq -n \
+            --arg title "EcoJobs Updated — v${REL_NAME}" \
+            --arg url "$rel_url" \
+            --arg tag "$TAG_NAME" \
+            --arg sha "$UP_SHA" \
+            --arg ver "$VERSION" \
+            --arg rep "$GITHUB_REPOSITORY" \
+            --arg dl_url "https://github.com/" + $rep + "/releases/download/" + $tag + "/EcoJobs.v" + $ver + ".jar" \
+            '{
+              embeds: [{
+                title: $title,
+                url: $url,
+                color: 8947848,
+                fields: [
+                  { name: "Tag", value: $tag, inline: true },
+                  { name: "Upstream SHA", value: ("`" + $sha + "`"), inline: false },
+                  { name: "Direct DL", value: ("[`" + "Click Me" + "`](`" + $dl_url + "`"), inline: false }
+                ],
+                footer: { text: ("GitHub Actions · " + $rep) }
+              }]
+            }' | curl -fsS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"
