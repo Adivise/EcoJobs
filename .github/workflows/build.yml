@@ -92,7 +92,7 @@ jobs:
             --arg sha "$UP_SHA" \
             --arg ver "$VERSION" \
             --arg rep "$GITHUB_REPOSITORY" \
-            --arg dl_url "https://github.com/" + $rep + "/releases/download/" + $tag + "/EcoJobs.v" + $ver + ".jar" \
+            --arg dl_url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/EcoJobs.v${VERSION}.jar" \
             '{
               embeds: [{
                 title: $title,
@@ -101,7 +101,7 @@ jobs:
                 fields: [
                   { name: "Tag", value: $tag, inline: true },
                   { name: "Upstream SHA", value: ("`" + $sha + "`"), inline: false },
-                  { name: "Direct DL", value: ("[`" + "Click Me" + "`](`" + $dl_url + "`"), inline: false }
+                  { name: "Direct DL", value: ("[Click Me](" + $dl_url + ")"), inline: false }
                 ],
                 footer: { text: ("GitHub Actions · " + $rep) }
               }]
