@@ -122,7 +122,8 @@ tag_exists() {
 
 next_rebuild_suffix() {
   local pv="$1"
-  local prefix="v${pv}-rebuild-"
+  local pfx="$2"
+  local prefix="${pfx}${pv}-rebuild-"
   local max_r=0
   local _sha ref tag n
   while IFS=$'\t' read -r _sha ref; do
@@ -138,21 +139,27 @@ next_rebuild_suffix() {
   echo $((max_r + 1))
 }
 
+# Detect prefix preference
+TAG_PREFIX="v"
+if ! git ls-remote --tags upstream "refs/tags/v*" | grep -q .; then
+  TAG_PREFIX=""
+fi
+
 if [ -z "$OLD_VER" ] || [ "$PV" != "$OLD_VER" ]; then
-  if tag_exists "v${PV}"; then
-    NEXT_R="$(next_rebuild_suffix "$PV")"
-    TAG_NAME="v${PV}-rebuild-${NEXT_R}"
+  if tag_exists "${TAG_PREFIX}${PV}"; then
+    NEXT_R="$(next_rebuild_suffix "$PV" "$TAG_PREFIX")"
+    TAG_NAME="${TAG_PREFIX}${PV}-rebuild-${NEXT_R}"
     RELEASE_NAME="${PV} (Rebuild-${NEXT_R})"
     KIND="rebuild"
-    echo "Note: tag v${PV} already exists; using ${TAG_NAME} for this release."
+    echo "Note: tag ${TAG_PREFIX}${PV} already exists; using ${TAG_NAME} for this release."
   else
-    TAG_NAME="v${PV}"
+    TAG_NAME="${TAG_PREFIX}${PV}"
     RELEASE_NAME="${PV} (Auto Build)"
     KIND="auto"
   fi
 else
-  NEXT_R="$(next_rebuild_suffix "$PV")"
-  TAG_NAME="v${PV}-rebuild-${NEXT_R}"
+  NEXT_R="$(next_rebuild_suffix "$PV" "$TAG_PREFIX")"
+  TAG_NAME="${TAG_PREFIX}${PV}-rebuild-${NEXT_R}"
   RELEASE_NAME="${PV} (Rebuild-${NEXT_R})"
   KIND="rebuild"
 fi
