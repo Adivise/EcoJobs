@@ -12,6 +12,7 @@ import com.willfp.ecojobs.api.event.PlayerJobJoinEvent
 import com.willfp.ecojobs.api.event.PlayerJobLeaveEvent
 import com.willfp.ecojobs.api.event.PlayerJobLevelUpEvent
 import com.willfp.ecojobs.jobs.Job
+import com.willfp.ecojobs.jobs.JobCategory
 import com.willfp.ecojobs.jobs.Jobs
 import com.willfp.ecojobs.jobs.getNumericalPermission
 import com.willfp.ecojobs.jobs.jobExperienceMultiplier
@@ -43,10 +44,28 @@ val Player.jobLimit: Int
     }
 
 /**
+ * The job limit in [category], or the job limit for jobs with no category when null.
+ */
+fun Player.getJobLimit(category: JobCategory?): Int {
+    if (category == null) {
+        return this.jobLimit
+    }
+
+    return this.getNumericalPermission("ecojobs.limit.${category.id}", category.limit.toDouble()).toInt()
+}
+
+/**
+ * A player's active jobs in [category], or with no category when null.
+ */
+fun OfflinePlayer.getActiveJobs(category: JobCategory?): List<Job> =
+    this.activeJobs.filter { it.category == category }
+
+/**
  * If a player can join a job.
  */
 fun Player.canJoinJob(job: Job): Boolean {
-    return this.activeJobs.size < this.jobLimit && job !in this.activeJobs && this.hasJob(job)
+    return this.getActiveJobs(job.category).size < this.getJobLimit(job.category)
+            && job !in this.activeJobs && this.hasJob(job)
 }
 
 /**
@@ -65,7 +84,10 @@ fun OfflinePlayer.hasJobActive(job: Job) = job in this.activeJobs
 val OfflinePlayer.activeJobs: Collection<Job>
     get() {
         if (this.profile.read(legacyActiveJobKey).isNotBlank()) {
-            this.profile.write(activeJobsKey, listOf(this.profile.read(legacyActiveJobKey)))
+            this.profile.write(
+                activeJobsKey,
+                (this.profile.read(activeJobsKey) + this.profile.read(legacyActiveJobKey)).distinct()
+            )
             this.profile.write(legacyActiveJobKey, "")
         }
 
@@ -77,6 +99,10 @@ val OfflinePlayer.activeJobs: Collection<Job>
  * Join a job.
  */
 fun OfflinePlayer.joinJob(job: Job) {
+    if (this.hasJobActive(job)) {
+        return
+    }
+
     val event = PlayerJobJoinEvent(this, job)
     Bukkit.getPluginManager().callEvent(event)
 
@@ -130,9 +156,12 @@ fun OfflinePlayer.setJobXP(job: Job, xp: Double) = this.profile.write(job.xpKey,
 
 /**
  * Reset a job.
+ *
+ * With [relock], a job that is not unlocked by default goes back to locked.
  */
-fun OfflinePlayer.resetJob(job: Job) {
-    this.setJobLevel(job, 1)
+@JvmOverloads
+fun OfflinePlayer.resetJob(job: Job, relock: Boolean = true) {
+    this.setJobLevel(job, if (relock && !job.isUnlockedByDefault) 0 else 1)
     this.setJobXP(job, 0.0)
 }
 

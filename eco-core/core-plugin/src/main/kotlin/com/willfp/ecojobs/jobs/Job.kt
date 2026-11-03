@@ -12,6 +12,7 @@ import com.willfp.eco.core.leaderboard.registerStandardPlaceholders
 import com.willfp.eco.core.placeholder.PlayerPlaceholder
 import com.willfp.eco.core.placeholder.PlayerStaticPlaceholder
 import com.willfp.eco.core.placeholder.PlayerlessPlaceholder
+import com.willfp.eco.core.placeholder.RegistrablePlaceholder
 import com.willfp.eco.core.placeholder.context.placeholderContext
 import com.willfp.eco.core.progression.ProgressionPlaceholders
 import com.willfp.eco.core.price.ConfiguredPrice
@@ -24,14 +25,14 @@ import com.willfp.eco.util.NumberUtils.evaluateExpression
 import com.willfp.eco.util.formatEco
 import com.willfp.eco.util.toNiceString
 import com.willfp.eco.util.toNumeral
-import com.willfp.ecojobs.api.activeJobs
 import com.willfp.ecojobs.api.canJoinJob
+import com.willfp.ecojobs.api.getActiveJobs
 import com.willfp.ecojobs.api.getJobLevel
+import com.willfp.ecojobs.api.getJobLimit
 import com.willfp.ecojobs.api.getJobProgress
 import com.willfp.ecojobs.api.getJobXP
 import com.willfp.ecojobs.api.getJobXPRequired
 import com.willfp.ecojobs.api.hasJobActive
-import com.willfp.ecojobs.api.jobLimit
 import com.willfp.ecojobs.plugin
 import com.willfp.ecojobs.util.LevelInjectable
 import com.willfp.libreforge.ViolationContext
@@ -61,6 +62,9 @@ class Job(
     val isUnlockedByDefault = config.getBool("unlocked-by-default")
 
     val resetsOnQuit = config.getBool("reset-on-quit")
+
+    val category: JobCategory?
+        get() = JobCategories.getByID(config.getStringOrNull("category"))
 
     val joinPrice = ConfiguredPrice.create(config.getSubsection("join-price")) ?: ConfiguredPrice(
         PriceEconomy(config.getDouble("join-price")), ""
@@ -139,6 +143,8 @@ class Job(
         Counters.compile(it, ViolationContext(plugin, "Job $id"))
     }
 
+    private val placeholders: List<RegistrablePlaceholder>
+
     init {
         // Logged once at load, not per XP gain: a broken curve recurs on every grant.
         for (problem in parsedCurve.problems) {
@@ -162,55 +168,57 @@ class Job(
             ViolationContext(plugin, "Job $id")
         )
 
-        PlayerPlaceholder(
-            plugin, "${id}_percentage_progress"
-        ) {
-            (it.getJobProgress(this) * 100).toNiceString()
-        }.register()
+        placeholders = listOf(
+            PlayerPlaceholder(
+                plugin, "${id}_percentage_progress"
+            ) {
+                (it.getJobProgress(this) * 100).toNiceString()
+            },
 
-        PlayerPlaceholder(
-            plugin, id
-        ) {
-            it.getJobLevel(this).toString()
-        }.register()
+            PlayerPlaceholder(
+                plugin, id
+            ) {
+                it.getJobLevel(this).toString()
+            },
 
-        PlayerPlaceholder(
-            plugin, "${id}_current_xp"
-        ) {
-            NumberUtils.format(it.getJobXP(this))
-        }.register()
+            PlayerPlaceholder(
+                plugin, "${id}_current_xp"
+            ) {
+                NumberUtils.format(it.getJobXP(this))
+            },
 
-        PlayerPlaceholder(
-            plugin, "${id}_required_xp"
-        ) {
-            it.getJobXPRequired(this)
-        }.register()
+            PlayerPlaceholder(
+                plugin, "${id}_required_xp"
+            ) {
+                it.getJobXPRequired(this)
+            },
 
-        PlayerlessPlaceholder(
-            plugin, "${id}_name"
-        ) {
-            this.name
-        }.register()
+            PlayerlessPlaceholder(
+                plugin, "${id}_name"
+            ) {
+                this.name
+            },
 
-        PlayerPlaceholder(
-            plugin, "${id}_level"
-        ) {
-            it.getJobLevel(this).toString()
-        }.register()
+            PlayerPlaceholder(
+                plugin, "${id}_level"
+            ) {
+                it.getJobLevel(this).toString()
+            },
 
-        PlayerPlaceholder(
-            plugin, "${id}_active"
-        ) {
-            it.hasJobActive(this).toString()
-        }.register()
+            PlayerPlaceholder(
+                plugin, "${id}_active"
+            ) {
+                it.hasJobActive(this).toString()
+            },
 
-        PlayerPlaceholder(
-            plugin, "${id}_total_players"
-        ) {
-            // Backed by the plugin-wide tally, refreshed on eco's leaderboard cycle, rather
-            // than by scanning the entire playerbase on every read.
-            (Jobs.tally?.getCount(id) ?: 0).toString()
-        }.register()
+            PlayerPlaceholder(
+                plugin, "${id}_total_players"
+            ) {
+                // Backed by the plugin-wide tally, refreshed on eco's leaderboard cycle, rather
+                // than by scanning the entire playerbase on every read.
+                (Jobs.tally?.getCount(id) ?: 0).toString()
+            }
+        ).onEach { it.register() }
     }
 
     val levelUpEffects = Effects.compileChain(
@@ -278,6 +286,7 @@ class Job(
 
     override fun onRemove() {
         jobXpGains.forEach { it.unbind() }
+        placeholders.forEach { it.unregister() }
     }
 
     fun getLevel(level: Int): JobLevel = levels.get(level) {
@@ -416,7 +425,7 @@ class Job(
                 plugin.configYml.getStrings("gui.job-icon.active-lore")
             } else if (player.canJoinJob(this)) {
                 plugin.configYml.getStrings("gui.job-icon.join-lore")
-            } else if (player.activeJobs.size == player.jobLimit) {
+            } else if (player.getActiveJobs(category).size == player.getJobLimit(category)) {
                 plugin.configYml.getStrings("gui.job-icon.too-many-jobs-lore")
             } else {
                 emptyList()

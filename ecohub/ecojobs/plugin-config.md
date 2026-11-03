@@ -1,6 +1,6 @@
 ---
 title: "Plugin Config"
-sidebar_position: 4
+sidebar_position: 5
 ---
 
 ## Default config.yml
@@ -13,7 +13,6 @@ use-local-storage: false
 
 leaderboard:
   # You can disable the top leaderboard if you don't want it
-  # Please note that it will require a full server restart to take into effect
   enabled: true
 
   # Time in seconds for the lifetime of the leaderboard cache
@@ -26,6 +25,7 @@ jobs:
   limit: 3 # The most jobs a player can have at once.
   # You can set custom limits with the ecojobs.limit.<number> permission
   prevent-levelling-while-afk: true # If the player is AFK then don't give xp
+  reset-on-quit-relocks: false # If reset-on-quit puts a job that is not unlocked by default back to locked
 
 gui:
   rows: 6
@@ -62,6 +62,7 @@ gui:
   player-info:
     row: 1
     column: 5
+    locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
     # Set to false to hide the player info icon.
     enabled: true
@@ -102,6 +103,11 @@ gui:
 
     # %join_price% and %leave_price% are also available as placeholders
 
+    # The click that opens the leave menu on an active job: left, right, shift-left or shift-right.
+    # The other plain click opens the level progression. Bedrock (Geyser) players cannot right-click in menus.
+    # Change the hint in active-lore to match.
+    leave-click: right
+
     active-lore:
       - ""
       - "&eClick to view Level Progression!"
@@ -128,6 +134,7 @@ gui:
     location:
       row: 6
       column: 4
+    locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
   next-page:
     item: arrow
@@ -135,6 +142,7 @@ gui:
     location:
       row: 6
       column: 6
+    locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
   close:
     enabled: true
@@ -143,6 +151,7 @@ gui:
     location:
       row: 6
       column: 5
+    locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
   # Custom GUI slots; see here for a how-to: https://plugins.auxilor.io/all-plugins/custom-gui-slots
   custom-slots: [ ]
@@ -192,6 +201,7 @@ level-gui:
       location:
         row: 6
         column: 4
+      locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
     next-page:
       material: arrow
@@ -199,6 +209,7 @@ level-gui:
       location:
         row: 6
         column: 6
+      locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
     close:
       enabled: true
@@ -207,6 +218,7 @@ level-gui:
       location:
         row: 6
         column: 5
+      locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
     unlocked:
       item: lime_stained_glass_pane
@@ -271,6 +283,7 @@ leave-gui:
     location:
       row: 2
       column: 3
+    locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
   confirm:
     item: player_head texture:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNTRiZDlhNDViOTY4MWNlYTViMjhjNzBmNzVhNjk1NmIxZjU5NGZlYzg0MGI5NjA3Nzk4ZmIxZTcwNzc2NDQzMCJ9fX0=
@@ -282,6 +295,7 @@ leave-gui:
     location:
       row: 2
       column: 7
+    locations: [ ] # Optional list of row/column slots; if set, the button shows in each of them instead of row/column
 
   # Custom GUI slots; see here for a how-to: https://plugins.auxilor.io/all-plugins/custom-gui-slots
   custom-slots: [ ]
